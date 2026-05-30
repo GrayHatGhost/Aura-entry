@@ -8,9 +8,11 @@ import StarField from '@/components/StarField'
 import type {
   ExperienceButton,
   ExperienceButtonType,
+  ExperienceContentType,
   ExperienceNode,
   ExperiencePayload,
   ExperienceSettings,
+  ExperienceTextMode,
 } from '@/lib/experience'
 
 interface Device {
@@ -57,11 +59,7 @@ interface Metrics {
 
 type Tab = 'flow' | 'devices' | 'metrics'
 type DetailTab = 'messages' | 'events'
-
-type ApiError = {
-  error?: string
-  details?: unknown
-}
+type ApiError = { error?: string; details?: unknown }
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   {
@@ -130,6 +128,21 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, '')
 }
 
+function uniqueSlug(base: string, existingSlugs: string[]) {
+  const cleanBase = slugify(base) || 'item'
+  const existing = new Set(existingSlugs)
+
+  if (!existing.has(cleanBase)) return cleanBase
+
+  for (let index = 2; index < 9999; index += 1) {
+    const candidate = `${cleanBase}-${index}`
+
+    if (!existing.has(candidate)) return candidate
+  }
+
+  return `${cleanBase}-${crypto.randomUUID().slice(0, 8)}`
+}
+
 function getApiErrorMessage(payload: unknown, fallback = 'Bilinmeyen hata') {
   if (!payload || typeof payload !== 'object') return fallback
 
@@ -144,21 +157,6 @@ function toSafeNumber(value: string, fallback: number, min = 0) {
   if (!Number.isFinite(parsed)) return fallback
 
   return Math.max(min, Math.round(parsed))
-}
-
-function uniqueSlug(base: string, existingSlugs: string[]) {
-  const cleanBase = slugify(base) || 'item'
-  const existing = new Set(existingSlugs)
-
-  if (!existing.has(cleanBase)) return cleanBase
-
-  for (let index = 2; index < 9999; index += 1) {
-    const candidate = `${cleanBase}-${index}`
-
-    if (!existing.has(candidate)) return candidate
-  }
-
-  return `${cleanBase}-${crypto.randomUUID().slice(0, 8)}`
 }
 
 function isValidUrl(url: string) {
@@ -205,6 +203,7 @@ function reindexButtonsByNode(buttons: ExperienceButton[]) {
 
 function normalizeButtonForSave(button: ExperienceButton): ExperienceButton {
   const buttonType = button.button_type
+  const showTransition = Boolean(button.show_transition)
 
   return {
     ...button,
@@ -212,12 +211,10 @@ function normalizeButtonForSave(button: ExperienceButton): ExperienceButton {
     label: button.label.trim(),
     target_node_id: buttonType === 'open_node' ? button.target_node_id : null,
     external_url:
-      buttonType === 'external_url' && button.external_url?.trim()
-        ? button.external_url.trim()
-        : null,
-    show_transition: Boolean(button.show_transition),
-    transition_text: button.show_transition ? button.transition_text ?? '' : '',
-    transition_duration_ms: button.show_transition
+      buttonType === 'external_url' && button.external_url?.trim() ? button.external_url.trim() : null,
+    show_transition: showTransition,
+    transition_text: showTransition ? button.transition_text ?? '' : '',
+    transition_duration_ms: showTransition
       ? Math.max(0, Math.round(Number(button.transition_duration_ms) || 0))
       : 0,
     ban_duration_seconds: Math.max(1, Math.round(Number(button.ban_duration_seconds) || 21600)),
@@ -231,7 +228,7 @@ function normalizePayloadForSave(payload: ExperiencePayload): ExperiencePayload 
     payload.nodes.map((node) => ({
       ...node,
       slug: slugify(node.slug) || node.id,
-      title: node.title.trim(),
+      title: node.title.trim() || 'İsimsiz Ekran',
       text_content: node.text_content ?? '',
       is_active: Boolean(node.is_active),
       content_type: node.content_type === 'cheatbox' ? 'cheatbox' : 'text_buttons',
@@ -251,7 +248,7 @@ function normalizePayloadForSave(payload: ExperiencePayload): ExperiencePayload 
   return {
     settings: {
       ...payload.settings,
-      entry_btn_label: payload.settings.entry_btn_label.trim(),
+      entry_btn_label: payload.settings.entry_btn_label.trim() || 'Merak mı ediyorsun? İçeriye gir',
       bg_music_url: payload.settings.bg_music_url.trim(),
       footer_text: payload.settings.footer_text ?? '',
       ban_confirm_text: payload.settings.ban_confirm_text ?? '',
@@ -275,39 +272,39 @@ function validatePayload(payload: ExperiencePayload) {
   const nodeSlugs = new Set<string>()
   const buttonSlugs = new Set<string>()
 
-  if (!payload.nodes.length) return 'En az bir kapı olmalı.'
+  if (!payload.nodes.length) return 'En az bir ekran olmalı.'
   if (!payload.settings.root_node_id || !nodeIds.has(payload.settings.root_node_id)) {
-    return 'Geçerli bir root kapı seçilmelidir.'
+    return 'Ana daktilo ekranı seçilmelidir.'
   }
 
   for (const node of payload.nodes) {
-    if (!node.title.trim()) return 'Tüm kapı başlıkları dolu olmalı.'
-    if (!node.slug.trim()) return 'Tüm kapı slug alanları dolu olmalı.'
+    if (!node.title.trim()) return 'Tüm ekranların panel adı dolu olmalı.'
+    if (!node.slug.trim()) return 'Ekran teknik kimliği boş olamaz.'
 
     if (nodeSlugs.has(node.slug)) {
-      return `"${node.slug}" kapı slug değeri birden fazla kullanılmış.`
+      return 'Aynı teknik ekran kimliği birden fazla kullanılmış. Lütfen yeni ekranı tekrar oluştur.'
     }
 
     nodeSlugs.add(node.slug)
   }
 
   for (const button of payload.buttons) {
-    if (!button.label.trim()) return 'Tüm buton etiketleri dolu olmalı.'
-    if (!button.slug.trim()) return 'Tüm buton slug alanları dolu olmalı.'
+    if (!button.label.trim()) return 'Tüm buton yazıları dolu olmalı.'
+    if (!button.slug.trim()) return 'Buton teknik kimliği boş olamaz.'
 
     if (buttonSlugs.has(button.slug)) {
-      return `"${button.slug}" buton slug değeri birden fazla kullanılmış.`
+      return 'Aynı teknik buton kimliği birden fazla kullanılmış. Lütfen butonu tekrar oluştur.'
     }
 
     buttonSlugs.add(button.slug)
 
     if (!nodeIds.has(button.node_id)) {
-      return `"${button.label}" butonu geçersiz bir kapıya bağlı.`
+      return `"${button.label}" butonu geçersiz bir ekrana bağlı.`
     }
 
     if (button.button_type === 'open_node') {
       if (!button.target_node_id || !nodeIds.has(button.target_node_id)) {
-        return `"${button.label}" butonu için geçerli bir hedef kapı seçilmelidir.`
+        return `"${button.label}" butonu için açılacak ekran seçilmelidir.`
       }
     }
 
@@ -315,11 +312,11 @@ function validatePayload(payload: ExperiencePayload) {
       const externalUrl = button.external_url?.trim() ?? ''
 
       if (!externalUrl || externalUrl === 'https://' || externalUrl === 'http://') {
-        return `"${button.label}" harici bağlantı butonu için geçerli bir URL girilmelidir.`
+        return `"${button.label}" bağlantı butonu için geçerli bir URL girilmelidir.`
       }
 
       if (!isValidUrl(externalUrl)) {
-        return `"${button.label}" harici bağlantı butonu geçerli bir URL içermiyor.`
+        return `"${button.label}" bağlantı butonu geçerli bir URL içermiyor.`
       }
     }
   }
@@ -500,6 +497,13 @@ function Badge({
   return <span className={className}>{children}</span>
 }
 
+function ScreenBadge({ node }: { node: ExperienceNode }) {
+  if (node.content_type === 'cheatbox') return <Badge tone="primary">cheatbox</Badge>
+  if (node.text_mode === 'typewriter') return <Badge tone="primary">daktilo</Badge>
+
+  return <Badge>metin</Badge>
+}
+
 export default function AdminDashboard() {
   const router = useRouter()
 
@@ -524,6 +528,11 @@ export default function AdminDashboard() {
   const selectedNode = useMemo(
     () => experience?.nodes.find((node) => node.id === selectedNodeId) ?? null,
     [experience, selectedNodeId]
+  )
+
+  const rootNode = useMemo(
+    () => experience?.nodes.find((node) => node.id === experience.settings.root_node_id) ?? null,
+    [experience]
   )
 
   const selectedNodeButtons = useMemo(
@@ -713,17 +722,59 @@ export default function AdminDashboard() {
     markDirty()
   }
 
-  function addNode() {
-    if (!experience) return
+  function createNode(title: string, contentType: ExperienceContentType, textMode: ExperienceTextMode) {
+    if (!experience) return null
 
-    const nextIndex = experience.nodes.length + 1
     const id = crypto.randomUUID()
-    const slug = uniqueSlug(`kapi-${nextIndex}`, experience.nodes.map((node) => node.slug))
+    const slug = uniqueSlug(title, experience.nodes.map((node) => node.slug))
 
     const node: ExperienceNode = {
       id,
       slug,
-      title: `Yeni Kapı ${nextIndex}`,
+      title,
+      content_type: contentType,
+      text_content: '',
+      text_mode: textMode,
+      is_active: true,
+      sort_order: experience.nodes.length,
+    }
+
+    setExperience((previous) =>
+      previous
+        ? {
+            ...previous,
+            nodes: reindexNodes([...previous.nodes, node]),
+          }
+        : previous
+    )
+
+    setSelectedNodeId(id)
+    markDirty()
+
+    return node
+  }
+
+  function addNode() {
+    if (!experience) return
+
+    const nextIndex = experience.nodes.length + 1
+    createNode(`Yeni Ekran ${nextIndex}`, 'text_buttons', 'static')
+  }
+
+  function createTargetNodeForButton(buttonId: string) {
+    if (!experience) return
+
+    const button = experience.buttons.find((item) => item.id === buttonId)
+    if (!button) return
+
+    const title = `${button.label || 'Yeni Buton'} Ekranı`
+    const id = crypto.randomUUID()
+    const slug = uniqueSlug(title, experience.nodes.map((node) => node.slug))
+
+    const node: ExperienceNode = {
+      id,
+      slug,
+      title,
       content_type: 'text_buttons',
       text_content: '',
       text_mode: 'static',
@@ -733,7 +784,17 @@ export default function AdminDashboard() {
 
     setExperience({
       ...experience,
-      nodes: [...experience.nodes, node],
+      nodes: reindexNodes([...experience.nodes, node]),
+      buttons: experience.buttons.map((item) =>
+        item.id === buttonId
+          ? {
+              ...item,
+              button_type: 'open_node',
+              target_node_id: id,
+              external_url: null,
+            }
+          : item
+      ),
     })
 
     setSelectedNodeId(id)
@@ -744,13 +805,17 @@ export default function AdminDashboard() {
     if (!experience) return
 
     if (experience.nodes.length <= 1) {
-      alert('En az bir kapı kalmalı.')
+      alert('En az bir ekran kalmalı.')
       return
     }
 
     const node = experience.nodes.find((item) => item.id === nodeId)
 
-    if (!confirm(`"${node?.title ?? 'Bu kapı'}" silinsin mi? Bu değişiklik Akışı Kaydet butonuna basınca kalıcı olur.`)) {
+    if (
+      !confirm(
+        `"${node?.title ?? 'Bu ekran'}" silinsin mi? Bu ekrana giden buton bağlantıları da kaldırılır. Değişiklik Akışı Kaydet butonuna basınca kalıcı olur.`
+      )
+    ) {
       return
     }
 
@@ -797,7 +862,7 @@ export default function AdminDashboard() {
       id: crypto.randomUUID(),
       node_id: nodeId,
       slug: uniqueSlug(
-        `${slugify(node?.slug || 'button')}-btn-${count}`,
+        `${node?.title || node?.slug || 'ekran'}-buton-${count}`,
         experience.buttons.map((item) => item.slug)
       ),
       label: `Yeni Buton ${count}`,
@@ -826,7 +891,7 @@ export default function AdminDashboard() {
 
     const button = experience.buttons.find((item) => item.id === buttonId)
 
-    if (!confirm(`"${button?.label ?? 'Bu buton'}" silinsin mi? Bu değişiklik Akışı Kaydet butonuna basınca kalıcı olur.`)) {
+    if (!confirm(`"${button?.label ?? 'Bu buton'}" silinsin mi? Değişiklik Akışı Kaydet butonuna basınca kalıcı olur.`)) {
       return
     }
 
@@ -1029,61 +1094,65 @@ export default function AdminDashboard() {
           </Notice>
         )}
 
-        <div
-          className="card"
-          style={{
-            padding: '24px 28px',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-            gap: 16,
-          }}
-        >
-          <Field
-            label="Giriş Butonu"
-            value={experience.settings.entry_btn_label}
-            onChange={(value) => updateSettings({ entry_btn_label: value })}
-            placeholder="Merak mı ediyorsun? İçeriye gir"
-          />
-          <Field
-            label="Arka Plan Müziği"
-            value={experience.settings.bg_music_url}
-            onChange={(value) => updateSettings({ bg_music_url: value })}
-            placeholder="https://www.youtube.com/watch?v=..."
-          />
-          <Field
-            label="Footer Yazısı"
-            value={experience.settings.footer_text}
-            onChange={(value) => updateSettings({ footer_text: value })}
-            placeholder="Alt bilgi yazısı"
-          />
-          <NumberField
-            label="Daktilo Hızı (ms)"
-            value={experience.settings.typewriter_char_delay_ms}
-            onChange={(value) => updateSettings({ typewriter_char_delay_ms: value })}
-            placeholder="43"
-            min={10}
-          />
-          <Field
-            label="Global Ban Onay Metni"
-            value={experience.settings.ban_confirm_text}
-            onChange={(value) => updateSettings({ ban_confirm_text: value })}
-            isArea
-          />
-          <Field
-            label="Global Siyah Geçiş Metni"
-            value={experience.settings.ban_pre_text}
-            onChange={(value) => updateSettings({ ban_pre_text: value })}
-            isArea
-          />
-          <ToggleField
-            label="Mobil Otomatik Kaydırma"
-            checked={experience.settings.mobile_autoscroll_enabled}
-            onChange={(checked) => updateSettings({ mobile_autoscroll_enabled: checked })}
-            desc="Daktilo metni mobilde uzadıkça akıcı şekilde aşağı kaydır."
-          />
+        <div className="card" style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div>
+            <p className="caps" style={{ display: 'block', marginBottom: 7 }}>
+              Başlangıç
+            </p>
+            <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 400 }}>
+              AuraRing → giriş butonu → müzik → ana daktilo ekranı
+            </h2>
+            <p style={{ margin: '8px 0 0', color: 'var(--t2)', fontSize: '0.74rem', lineHeight: 1.6 }}>
+              Site açıldığında önce AuraRing görünür. Giriş butonuna basılınca müzik başlar ve seçtiğin ana ekran daktilo metni olarak akar.
+              Bundan sonra akış, ekranlara eklediğin butonlarla dallanır.
+            </p>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
+            <Field
+              label="Giriş Butonu"
+              value={experience.settings.entry_btn_label}
+              onChange={(value) => updateSettings({ entry_btn_label: value })}
+              placeholder="Merak mı ediyorsun? İçeriye gir"
+            />
+            <Field
+              label="Arka Plan Müziği"
+              value={experience.settings.bg_music_url}
+              onChange={(value) => updateSettings({ bg_music_url: value })}
+              placeholder="https://www.youtube.com/watch?v=..."
+            />
+            <NumberField
+              label="Daktilo Hızı (ms)"
+              value={experience.settings.typewriter_char_delay_ms}
+              onChange={(value) => updateSettings({ typewriter_char_delay_ms: value })}
+              placeholder="43"
+              min={10}
+            />
+            <SelectField
+              label="Ana Daktilo Ekranı"
+              value={experience.settings.root_node_id}
+              onChange={(value) => updateSettings({ root_node_id: value })}
+              options={experience.nodes.map((node) => ({ label: node.title || 'İsimsiz Ekran', value: node.id }))}
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
+            <ToggleField
+              label="Mobil Otomatik Kaydırma"
+              checked={experience.settings.mobile_autoscroll_enabled}
+              onChange={(checked) => updateSettings({ mobile_autoscroll_enabled: checked })}
+              desc="Daktilo metni mobilde uzadıkça akıcı şekilde aşağı kaydır."
+            />
+            <Field
+              label="Footer Yazısı"
+              value={experience.settings.footer_text}
+              onChange={(value) => updateSettings({ footer_text: value })}
+              placeholder="Alt bilgi yazısı"
+            />
+          </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: 18, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 18, alignItems: 'start' }}>
           <div className="card" style={{ overflow: 'hidden' }}>
             <div
               style={{
@@ -1095,17 +1164,23 @@ export default function AdminDashboard() {
                 gap: 12,
               }}
             >
-              <span className="caps" style={{ display: 'block' }}>
-                Kapılar
-              </span>
+              <div>
+                <span className="caps" style={{ display: 'block' }}>
+                  Ekranlar
+                </span>
+                <p style={{ margin: '4px 0 0', color: 'var(--t2)', fontSize: '0.62rem' }}>
+                  Dallanma noktaları
+                </p>
+              </div>
               <button className="btn btn-primary" style={{ fontSize: '0.68rem' }} onClick={addNode}>
-                Yeni Kapı
+                Yeni Ekran
               </button>
             </div>
 
-            <div style={{ maxHeight: 620, overflowY: 'auto' }}>
+            <div style={{ maxHeight: 680, overflowY: 'auto' }}>
               {experience.nodes.map((node) => {
                 const selectedState = node.id === selectedNodeId
+                const buttonCount = experience.buttons.filter((button) => button.node_id === node.id).length
 
                 return (
                   <button
@@ -1126,15 +1201,17 @@ export default function AdminDashboard() {
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                       <span style={{ fontSize: '0.82rem', color: selectedState ? 'var(--p-text)' : 'var(--t0)' }}>
-                        {node.title || 'Başlıksız Kapı'}
+                        {node.title || 'İsimsiz Ekran'}
                       </span>
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        {experience.settings.root_node_id === node.id && <Badge tone="primary">root</Badge>}
+                        {experience.settings.root_node_id === node.id && <Badge tone="primary">ana</Badge>}
                         {!node.is_active && <Badge tone="danger">pasif</Badge>}
-                        <Badge>{node.content_type === 'cheatbox' ? 'cheatbox' : 'yazı'}</Badge>
+                        <ScreenBadge node={node} />
                       </div>
                     </div>
-                    <p style={{ margin: '4px 0 0', fontSize: '0.6rem', color: 'var(--t2)' }}>{node.slug}</p>
+                    <p style={{ margin: '6px 0 0', fontSize: '0.62rem', color: 'var(--t2)' }}>
+                      {buttonCount} buton
+                    </p>
                   </button>
                 )
               })}
@@ -1144,16 +1221,21 @@ export default function AdminDashboard() {
           <div className="card" style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 24 }}>
             {!selectedNode ? (
               <div style={{ textAlign: 'center', color: 'var(--t2)', padding: '64px 24px' }}>
-                Düzenlemek için bir kapı seç.
+                Düzenlemek için bir ekran seç.
               </div>
             ) : (
               <>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
                   <div>
                     <p className="caps" style={{ display: 'block', marginBottom: 6 }}>
-                      Kapı Düzenleyici
+                      Ekran Düzenleyici
                     </p>
                     <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 400 }}>{selectedNode.title}</h2>
+                    {rootNode?.id === selectedNode.id && (
+                      <p style={{ margin: '7px 0 0', color: 'var(--p-text)', fontSize: '0.7rem' }}>
+                        Bu ekran girişten sonra gelen ana daktilo ekranı.
+                      </p>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
@@ -1161,7 +1243,7 @@ export default function AdminDashboard() {
                       style={{ fontSize: '0.68rem' }}
                       onClick={() => updateSettings({ root_node_id: selectedNode.id })}
                     >
-                      Root Yap
+                      Ana Yap
                     </button>
                     <button className="btn btn-danger" style={{ fontSize: '0.68rem' }} onClick={() => removeNode(selectedNode.id)}>
                       Sil
@@ -1171,64 +1253,55 @@ export default function AdminDashboard() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
                   <Field
-                    label="Kapı Başlığı"
+                    label="Panelde Görünecek Ad"
                     value={selectedNode.title}
                     onChange={(value) => updateNode(selectedNode.id, { title: value })}
-                  />
-                  <Field
-                    label="Slug"
-                    value={selectedNode.slug}
-                    onChange={(value) =>
-                      updateNode(selectedNode.id, {
-                        slug: uniqueSlug(
-                          slugify(value) || selectedNode.slug,
-                          experience.nodes.filter((node) => node.id !== selectedNode.id).map((node) => node.slug)
-                        ),
-                      })
-                    }
+                    desc="Ziyaretçiye görünmez. Sadece panelde ekranı ayırt etmek için."
                   />
                   <SelectField
-                    label="İçerik Tipi"
+                    label="Ekranda Ne Gösterilecek?"
                     value={selectedNode.content_type}
                     onChange={(value) =>
-                      updateNode(selectedNode.id, { content_type: value as ExperienceNode['content_type'] })
+                      updateNode(selectedNode.id, { content_type: value as ExperienceContentType })
                     }
                     options={[
-                      { label: 'Yazı + Butonlar', value: 'text_buttons' },
+                      { label: 'Yazı ve altına butonlar', value: 'text_buttons' },
                       { label: 'Cheatbox', value: 'cheatbox' },
                     ]}
                   />
-                  <SelectField
-                    label="Yazı Modu"
-                    value={selectedNode.text_mode}
-                    onChange={(value) => updateNode(selectedNode.id, { text_mode: value as ExperienceNode['text_mode'] })}
-                    options={[
-                      { label: 'Daktilo', value: 'typewriter' },
-                      { label: 'Statik', value: 'static' },
-                    ]}
-                  />
+                  {selectedNode.content_type === 'text_buttons' && (
+                    <SelectField
+                      label="Yazı Nasıl Gelsin?"
+                      value={selectedNode.text_mode}
+                      onChange={(value) => updateNode(selectedNode.id, { text_mode: value as ExperienceTextMode })}
+                      options={[
+                        { label: 'Daktilo efektiyle yazılsın', value: 'typewriter' },
+                        { label: 'Direkt görünsün', value: 'static' },
+                      ]}
+                    />
+                  )}
                 </div>
 
                 <ToggleField
-                  label="Kapı Aktif"
+                  label="Bu ekran aktif"
                   checked={selectedNode.is_active}
                   onChange={(checked) => updateNode(selectedNode.id, { is_active: checked })}
+                  desc="Pasif ekranlar ziyaretçiye gösterilmez."
                 />
 
                 {selectedNode.content_type === 'text_buttons' && (
                   <Field
-                    label="Kapı Metni"
+                    label="Ekran Yazısı"
                     value={selectedNode.text_content}
                     onChange={(value) => updateNode(selectedNode.id, { text_content: value })}
                     isArea
-                    desc="Daktilo veya statik gösterilecek ana içerik."
+                    desc="Bu ekranda gösterilecek metin. Ana ekran daktiloysa buradaki yazı daktilo efektiyle akar."
                   />
                 )}
 
                 {selectedNode.content_type === 'cheatbox' && (
                   <Notice>
-                    Bu kapı açıldığında mevcut cheatbox deneyimi ana içerik olarak gösterilir. İstersen bu kapının altına yine
-                    yeni butonlar ekleyerek dallandırma yapabilirsin.
+                    Bu ekran açıldığında mevcut cheatbox deneyimi gösterilir. İstersen aşağıya yine buton ekleyerek cheatbox sonrası yeni dallar oluşturabilirsin.
                   </Notice>
                 )}
 
@@ -1236,18 +1309,18 @@ export default function AdminDashboard() {
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                     <div>
                       <p className="caps" style={{ display: 'block', marginBottom: 4 }}>
-                        Butonlar
+                        Bu Ekranın Butonları
                       </p>
                       <p style={{ margin: 0, color: 'var(--t2)', fontSize: '0.72rem' }}>
-                        Bu kapı tamamlandığında kullanıcıya gösterilecek seçenekler.
+                        Kullanıcının bu ekrandan sonra nereye gideceğini buradan belirlersin.
                       </p>
                     </div>
                     <button className="btn btn-primary" style={{ fontSize: '0.68rem' }} onClick={() => addButton(selectedNode.id)}>
-                      Yeni Buton
+                      Buton Ekle
                     </button>
                   </div>
 
-                  {!selectedNodeButtons.length && <Notice>Bu kapıda henüz buton yok.</Notice>}
+                  {!selectedNodeButtons.length && <Notice>Bu ekranda henüz buton yok.</Notice>}
 
                   {selectedNodeButtons.map((button) => (
                     <div
@@ -1265,7 +1338,13 @@ export default function AdminDashboard() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                           <strong style={{ fontSize: '0.82rem', fontWeight: 500 }}>{button.label || 'Başlıksız Buton'}</strong>
-                          <Badge>{button.button_type}</Badge>
+                          <Badge>
+                            {button.button_type === 'open_node'
+                              ? 'kapı açar'
+                              : button.button_type === 'external_url'
+                                ? 'bağlantı'
+                                : 'ban'}
+                          </Badge>
                           {!button.is_active && <Badge tone="danger">pasif</Badge>}
                         </div>
                         <button className="btn btn-danger" style={{ fontSize: '0.66rem' }} onClick={() => removeButton(button.id)}>
@@ -1279,59 +1358,60 @@ export default function AdminDashboard() {
                           value={button.label}
                           onChange={(value) => updateButton(button.id, { label: value })}
                         />
-                        <Field
-                          label="Slug"
-                          value={button.slug}
-                          onChange={(value) =>
-                            updateButton(button.id, {
-                              slug: uniqueSlug(
-                                slugify(value) || button.slug,
-                                experience.buttons.filter((item) => item.id !== button.id).map((item) => item.slug)
-                              ),
-                            })
-                          }
-                        />
                         <SelectField
-                          label="Buton Tipi"
+                          label="Buton Ne Yapsın?"
                           value={button.button_type}
                           onChange={(value) => updateButton(button.id, { button_type: value as ExperienceButtonType })}
                           options={[
-                            { label: 'Kapı Aç', value: 'open_node' },
-                            { label: 'Harici Link', value: 'external_url' },
-                            { label: 'Ban', value: 'ban' },
+                            { label: 'Yeni ekran açsın', value: 'open_node' },
+                            { label: 'Instagram / web bağlantısı açsın', value: 'external_url' },
+                            { label: 'Kullanıcıyı banlasın', value: 'ban' },
                           ]}
                         />
+                      </div>
 
-                        {button.button_type === 'open_node' && (
+                      {button.button_type === 'open_node' && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10, alignItems: 'end' }}>
                           <SelectField
-                            label="Hedef Kapı"
+                            label="Açılacak Ekran"
                             value={button.target_node_id ?? ''}
                             onChange={(value) => updateButton(button.id, { target_node_id: value })}
                             options={experience.nodes.map((node) => ({
-                              label: node.title || node.slug,
+                              label: node.title || 'İsimsiz Ekran',
                               value: node.id,
                             }))}
                           />
-                        )}
+                          <button className="btn btn-ghost" style={{ height: 42, fontSize: '0.68rem' }} onClick={() => createTargetNodeForButton(button.id)}>
+                            Yeni ekran oluştur
+                          </button>
+                        </div>
+                      )}
 
-                        {button.button_type === 'external_url' && (
-                          <Field
-                            label="Harici URL"
-                            value={button.external_url ?? ''}
-                            onChange={(value) => updateButton(button.id, { external_url: value })}
-                            placeholder="https://instagram.com/..."
-                          />
-                        )}
+                      {button.button_type === 'external_url' && (
+                        <Field
+                          label="Açılacak Bağlantı"
+                          value={button.external_url ?? ''}
+                          onChange={(value) => updateButton(button.id, { external_url: value })}
+                          placeholder="https://instagram.com/..."
+                        />
+                      )}
 
-                        {button.button_type === 'ban' && (
+                      {button.button_type === 'ban' && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14 }}>
                           <NumberField
                             label="Ban Süresi (sn)"
                             value={button.ban_duration_seconds}
                             onChange={(value) => updateButton(button.id, { ban_duration_seconds: value })}
                             min={1}
                           />
-                        )}
-                      </div>
+                          <Field
+                            label="Özel Ban Onay Metni"
+                            value={button.confirm_text_override ?? ''}
+                            onChange={(value) => updateButton(button.id, { confirm_text_override: value || null })}
+                            desc="Boş bırakılırsa global onay metni kullanılır."
+                          />
+                        </div>
+                      )}
 
                       <ToggleField
                         label="Buton Aktif"
@@ -1340,43 +1420,58 @@ export default function AdminDashboard() {
                       />
 
                       <ToggleField
-                        label="Siyah Geçiş Ekranı"
+                        label="Önce Siyah Geçiş Ekranı Göster"
                         checked={button.show_transition}
                         onChange={(checked) => updateButton(button.id, { show_transition: checked })}
-                        desc="Butona basıldığında önce siyah ekranda özel metin gösterilsin."
+                        desc="Butona basınca yeni ekran/link/ban işleminden önce siyah ekranda özel metin gösterilir."
                       />
 
                       {button.show_transition && (
                         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 180px', gap: 14 }}>
                           <Field
-                            label="Geçiş Metni"
+                            label="Siyah Ekran Yazısı"
                             value={button.transition_text}
                             onChange={(value) => updateButton(button.id, { transition_text: value })}
                             isArea
                           />
                           <NumberField
-                            label="Geçiş Süresi (ms)"
+                            label="Süre (ms)"
                             value={button.transition_duration_ms}
                             onChange={(value) => updateButton(button.id, { transition_duration_ms: value })}
                             min={0}
                           />
                         </div>
                       )}
-
-                      {button.button_type === 'ban' && (
-                        <Field
-                          label="Özel Ban Onay Metni"
-                          value={button.confirm_text_override ?? ''}
-                          onChange={(value) => updateButton(button.id, { confirm_text_override: value || null })}
-                          isArea
-                          desc="Boş bırakılırsa global ban onay metni kullanılır."
-                        />
-                      )}
                     </div>
                   ))}
                 </div>
               </>
             )}
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <p className="caps" style={{ display: 'block', marginBottom: 6 }}>
+              Ban Varsayılanları
+            </p>
+            <p style={{ margin: 0, color: 'var(--t2)', fontSize: '0.72rem', lineHeight: 1.6 }}>
+              Ban butonlarında özel metin girmezsen bu varsayılan metinler kullanılır.
+            </p>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+            <Field
+              label="Ban Onay Metni"
+              value={experience.settings.ban_confirm_text}
+              onChange={(value) => updateSettings({ ban_confirm_text: value })}
+              isArea
+            />
+            <Field
+              label="Ban Öncesi Siyah Ekran Yazısı"
+              value={experience.settings.ban_pre_text}
+              onChange={(value) => updateSettings({ ban_pre_text: value })}
+              isArea
+            />
           </div>
         </div>
       </motion.div>
@@ -1506,7 +1601,7 @@ export default function AdminDashboard() {
                   ['IP', selected.ip],
                   ['OS', selected.os_name],
                   ['Tarayıcı', selected.browser],
-                  ['Çözünürlük', selected.timezone],
+                  ['Timezone', selected.timezone],
                   ['RAM', `${selected.device_memory || 0} GB`],
                   ['CPU', `${selected.cpu_cores || 0} çekirdek`],
                   ['İlk Görülme', fmt(selected.first_seen)],
@@ -1787,7 +1882,7 @@ export default function AdminDashboard() {
                 fontFamily: "var(--font-outfit), 'Outfit', sans-serif",
               }}
             >
-              {tab === 'flow' && 'Deneyim Mimarisi'}
+              {tab === 'flow' && 'Deneyim Akışı'}
               {tab === 'devices' && `${devices.length} Cihaz`}
               {tab === 'metrics' && `${total} Ziyaret`}
             </h1>
