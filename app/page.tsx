@@ -64,6 +64,8 @@ interface TransitionState {
   button: ExperienceButton
 }
 
+const DEFAULT_BAN_CONFIRM_TEXT = 'Bu secim geri alinamaz. Devam etmek istiyor musun?'
+
 export default function Home() {
   const router = useRouter()
   const [pageStage, setPageStage] = useState<PageStage>('loading')
@@ -86,6 +88,7 @@ export default function Home() {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const hasFadedRef = useRef(false)
   const transitionFiredRef = useRef(false)
+  const lastLoggedScreenRef = useRef('')
 
   useEffect(() => {
     async function init() {
@@ -230,6 +233,22 @@ export default function Home() {
     [experience, currentNode?.id]
   )
 
+  const getNodeById = useCallback(
+    (nodeId: string | null | undefined) => {
+      if (!nodeId) return null
+      return activeNodes.find((node) => node.id === nodeId) ?? null
+    },
+    [activeNodes]
+  )
+
+  const logVisitorEvent = useCallback((payload: Record<string, unknown>) => {
+    fetch('/api/visitor/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {})
+  }, [])
+
   const shouldTypewriteCurrentNode = !!(
     currentNode &&
     currentNode.content_type === 'text_buttons' &&
@@ -241,6 +260,25 @@ export default function Home() {
     if (!currentNode?.id) return
     setTypedNodeIds((prev) => (prev.includes(currentNode.id) ? prev : [...prev, currentNode.id]))
   }, [currentNode?.id])
+
+  useEffect(() => {
+    if (pageStage !== 'experience' || !currentNode) return
+    if (lastLoggedScreenRef.current === currentNode.id) return
+
+    lastLoggedScreenRef.current = currentNode.id
+
+    logVisitorEvent({
+      eventType: 'screen_view',
+      stage: currentNode.slug,
+      nodeId: currentNode.id,
+      nodeSlug: currentNode.slug,
+      nodeTitle: currentNode.title,
+      metadata: {
+        contentType: currentNode.content_type,
+        textMode: currentNode.text_mode,
+      },
+    })
+  }, [currentNode, logVisitorEvent, pageStage])
 
   const openNode = useCallback((targetNodeId: string | null) => {
     if (!activeNodes.length) return false
@@ -280,13 +318,29 @@ export default function Home() {
 
   const goBack = useCallback(() => {
     if (history.length === 0) return
+
     const prevNodeId = history[history.length - 1]
+    const prevNode = getNodeById(prevNodeId)
+
+    logVisitorEvent({
+      eventType: 'back_click',
+      stage: currentNode?.slug || 'unknown',
+      nodeId: currentNode?.id,
+      nodeSlug: currentNode?.slug,
+      nodeTitle: currentNode?.title,
+      buttonLabel: 'Geri Butonu',
+      buttonType: 'back',
+      targetNodeId: prevNode?.id ?? prevNodeId,
+      targetNodeSlug: prevNode?.slug,
+      targetNodeTitle: prevNode?.title,
+    })
+
     setHistory((prev) => prev.slice(0, -1))
     setCurrentNodeId(prevNodeId)
     window.requestAnimationFrame(() => {
       window.scrollTo({ top: 0, behavior: 'smooth' })
     })
-  }, [history])
+  }, [currentNode?.id, currentNode?.slug, currentNode?.title, getNodeById, history, logVisitorEvent])
 
   const triggerDestroySequence = useCallback(() => {
     setGlitching(true)
@@ -296,63 +350,117 @@ export default function Home() {
     }, 1800)
   }, [router])
 
-  const executeBan = useCallback(async (button: ExperienceButton) => {
-    try {
-      await fetch('/api/ban', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceId: deviceIdRef.current,
+  const executeBan = useCallback(
+    async (button: ExperienceButton, transitionUsed = false) => {
+      try {
+        await fetch('/api/ban', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceId: deviceIdRef.current,
+            stage: currentNode?.slug || 'unknown',
+            nodeId: currentNode?.id,
+            nodeSlug: currentNode?.slug,
+            nodeTitle: currentNode?.title,
+            buttonId: button.id,
+            buttonSlug: button.slug,
+            buttonLabel: button.label,
+            banDurationSeconds: button.ban_duration_seconds,
+            transitionUsed,
+            transitionText: transitionUsed ? button.transition_text : '',
+            transitionDurationSeconds: transitionUsed ? button.transition_duration_seconds : 0,
+          }),
+        })
+      } catch {
+        // Ban request is best-effort before redirecting to the 404 flow.
+      }
+
+      triggerDestroySequence()
+    },
+    [currentNode?.id, currentNode?.slug, currentNode?.title, triggerDestroySequence]
+  )
+
+  const executeButtonAction = useCallback(
+    async (button: ExperienceButton, transitionUsed = false) => {
+      const targetNode = getNodeById(button.target_node_id)
+
+      if (button.button_type === 'open_node') {
+        logVisitorEvent({
+          eventType: 'button_click',
           stage: currentNode?.slug || 'unknown',
-          buttonLabel: button.label,
-          banDurationSeconds: button.ban_duration_seconds,
-        }),
-      })
-    } catch {
-      // Ban request is best-effort before redirecting to the 404 flow.
-    }
-
-    triggerDestroySequence()
-  }, [currentNode?.slug, triggerDestroySequence])
-
-  const executeButtonAction = useCallback(async (button: ExperienceButton) => {
-    if (button.button_type === 'open_node') {
-      const opened = openNode(button.target_node_id)
-
-      if (!opened) {
-        console.warn('Open node action has no valid target node.', {
+          nodeId: currentNode?.id,
+          nodeSlug: currentNode?.slug,
+          nodeTitle: currentNode?.title,
           buttonId: button.id,
           buttonSlug: button.slug,
-          targetNodeId: button.target_node_id,
+          buttonLabel: button.label,
+          buttonType: button.button_type,
+          targetNodeId: targetNode?.id ?? button.target_node_id,
+          targetNodeSlug: targetNode?.slug,
+          targetNodeTitle: targetNode?.title,
+          transitionUsed,
+          transitionText: transitionUsed ? button.transition_text : '',
+          transitionDurationSeconds: transitionUsed ? button.transition_duration_seconds : 0,
         })
+
+        const opened = openNode(button.target_node_id)
+
+        if (!opened) {
+          console.warn('Open node action has no valid target node.', {
+            buttonId: button.id,
+            buttonSlug: button.slug,
+            targetNodeId: button.target_node_id,
+          })
+        }
+
+        return
       }
 
-      return
-    }
+      if (button.button_type === 'external_url') {
+        const url = normalizeUrl(button.external_url)
 
-    if (button.button_type === 'external_url') {
-      const url = normalizeUrl(button.external_url)
-      if (url) {
-        window.open(url, '_blank', 'noopener,noreferrer')
+        logVisitorEvent({
+          eventType: 'external_link',
+          stage: currentNode?.slug || 'unknown',
+          nodeId: currentNode?.id,
+          nodeSlug: currentNode?.slug,
+          nodeTitle: currentNode?.title,
+          buttonId: button.id,
+          buttonSlug: button.slug,
+          buttonLabel: button.label,
+          buttonType: button.button_type,
+          transitionUsed,
+          transitionText: transitionUsed ? button.transition_text : '',
+          transitionDurationSeconds: transitionUsed ? button.transition_duration_seconds : 0,
+          metadata: {
+            url: url ?? button.external_url ?? '',
+          },
+        })
+
+        if (url) {
+          window.open(url, '_blank', 'noopener,noreferrer')
+        }
+
+        return
       }
-      return
-    }
 
-    await executeBan(button)
-  }, [executeBan, openNode])
+      await executeBan(button, transitionUsed)
+    },
+    [currentNode?.id, currentNode?.slug, currentNode?.title, executeBan, getNodeById, logVisitorEvent, openNode]
+  )
 
   useEffect(() => {
     if (!activeTransition) return
 
     transitionFiredRef.current = false
-    const duration = Math.max(0, activeTransition.button.transition_duration_ms)
+    const duration = Math.max(0, activeTransition.button.transition_duration_seconds * 1000)
 
     const finalize = () => {
       if (transitionFiredRef.current) return
       transitionFiredRef.current = true
       const button = activeTransition.button
       setActiveTransition(null)
-      void executeButtonAction(button)
+      void executeButtonAction(button, true)
     }
 
     const timeout = window.setTimeout(finalize, duration)
@@ -365,12 +473,12 @@ export default function Home() {
       return
     }
 
-    if (button.show_transition && button.transition_duration_ms > 0) {
+    if (button.show_transition && button.transition_duration_seconds > 0) {
       setActiveTransition({ button })
       return
     }
 
-    void executeButtonAction(button)
+    void executeButtonAction(button, false)
   }, [executeButtonAction])
 
   const confirmBan = useCallback(() => {
@@ -378,12 +486,12 @@ export default function Home() {
     const button = pendingBanButton
     setPendingBanButton(null)
 
-    if (button.show_transition && button.transition_duration_ms > 0) {
+    if (button.show_transition && button.transition_duration_seconds > 0) {
       setActiveTransition({ button })
       return
     }
 
-    void executeBan(button)
+    void executeBan(button, false)
   }, [executeBan, pendingBanButton])
 
   const ytId = getYouTubeId(experience?.settings.bg_music_url)
@@ -448,10 +556,7 @@ export default function Home() {
 
   const shouldShowRing = pageStage !== 'blocked'
   const showExperience = pageStage === 'experience' && currentNode
-  const currentBanConfirmText =
-    pendingBanButton?.confirm_text_override ||
-    experience?.settings.ban_confirm_text ||
-    'Bu buton ile sayfayı tamamen yok edersin ve geri dönüşü yoktur. Onaylıyor musun?'
+  const currentBanConfirmText = pendingBanButton?.confirm_text_override || DEFAULT_BAN_CONFIRM_TEXT
 
   if (destroyed) {
     return (
@@ -596,7 +701,7 @@ export default function Home() {
               transitionFiredRef.current = true
               const button = activeTransition.button
               setActiveTransition(null)
-              void executeButtonAction(button)
+              void executeButtonAction(button, true)
             }}
             style={{
               position: 'fixed', inset: 0, zIndex: 50,
@@ -686,7 +791,7 @@ export default function Home() {
                     <TypewriterText
                       text={currentNode.text_content}
                       onComplete={markCurrentNodeTyped}
-                      charDelayMs={experience?.settings.typewriter_char_delay_ms}
+                      totalDurationSeconds={currentNode.typewriter_duration_seconds}
                       mobileAutoscroll={experience?.settings.mobile_autoscroll_enabled}
                     />
                   ) : (
@@ -723,10 +828,46 @@ export default function Home() {
                   marginTop: 24,
                   paddingBottom: 24,
                 }}>
+                  {!!currentNode.text_content.trim() && (
+                    currentNode.text_mode === 'typewriter' && !typedNodeIds.includes(currentNode.id) ? (
+                      <TypewriterText
+                        text={currentNode.text_content}
+                        onComplete={markCurrentNodeTyped}
+                        totalDurationSeconds={currentNode.typewriter_duration_seconds}
+                        mobileAutoscroll={experience?.settings.mobile_autoscroll_enabled}
+                      />
+                    ) : (
+                      <div style={{ textAlign: 'center', width: '100%' }}>
+                        {currentNode.text_content.split('\n\n').map((paragraph, i) => (
+                          <p
+                            key={i}
+                            style={{
+                              color: 'var(--t0)',
+                              fontSize: '0.92rem',
+                              fontWeight: 300,
+                              lineHeight: 1.8,
+                              letterSpacing: '0.02em',
+                              marginBottom: '1.1rem',
+                              whiteSpace: 'pre-line',
+                              opacity: 0.84,
+                            }}
+                          >
+                            {paragraph}
+                          </p>
+                        ))}
+                      </div>
+                    )
+                  )}
                   <ChatBox
                     deviceId={deviceId}
                     initialMessages={existingMsgs}
                     onFirstMessage={() => setHasSentMessage(true)}
+                    stageContext={{
+                      stage: currentNode.slug,
+                      nodeId: currentNode.id,
+                      nodeSlug: currentNode.slug,
+                      nodeTitle: currentNode.title,
+                    }}
                   />
                 </div>
               )}
@@ -741,7 +882,7 @@ export default function Home() {
                   {currentButtons.map((button) => (
                     <button
                       key={button.id}
-                      className={`action-btn${button.button_type === 'ban' ? ' exit-btn' : ''}`}
+                      className="action-btn"
                       onClick={() => handleButtonClick(button)}
                     >
                       {button.label}
@@ -807,22 +948,6 @@ export default function Home() {
           background: rgba(124, 82, 220, 0.1);
           border-color: rgba(124, 82, 220, 0.3);
           transform: translateY(-1px);
-        }
-        .action-btn.exit-btn {
-          background: transparent;
-          border-color: transparent;
-          color: var(--t2);
-          font-size: 0.78rem;
-          opacity: 0.55;
-          max-width: 180px;
-          padding: 10px 20px;
-        }
-        .action-btn.exit-btn:hover {
-          color: rgba(220, 80, 80, 0.85);
-          opacity: 1;
-          border-color: rgba(200, 60, 60, 0.15);
-          background: rgba(200, 60, 60, 0.04);
-          transform: translateY(0);
         }
         .nav-btn {
           display: flex;

@@ -1,20 +1,5 @@
 import type { Metadata } from 'next'
-import { Inter, Outfit } from 'next/font/google'
 import './globals.css'
-
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['200', '300', '400', '500', '600'],
-  display: 'swap',
-  variable: '--font-inter',
-})
-
-const outfit = Outfit({
-  subsets: ['latin'],
-  weight: ['200', '300', '400', '500', '600'],
-  display: 'swap',
-  variable: '--font-outfit',
-})
 
 export const metadata: Metadata = {
   title: 'Aura',
@@ -24,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="tr" className={`${inter.variable} ${outfit.variable}`}>
+    <html lang="tr">
       <body style={{
         margin: 0, padding: 0,
         background: '#07070c',
