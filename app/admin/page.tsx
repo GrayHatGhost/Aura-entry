@@ -27,14 +27,7 @@ export default function AdminLogin() {
   }
 
   return (
-    <div style={{
-      minHeight: '100dvh',
-      display: 'grid',
-      gridTemplateColumns: '420px 1fr',
-      background: 'var(--bg)',
-      fontFamily: "var(--font-inter), 'Inter', system-ui, sans-serif",
-      position: 'relative',
-    }}>
+    <div className="min-h-[100dvh] flex flex-col lg:grid lg:grid-cols-[440px_1fr] bg-[var(--bg)] relative" style={{ fontFamily: "var(--font-inter), 'Inter', system-ui, sans-serif" }}>
       <StarField />
 
       {/* ── Left panel — identity ── */}
@@ -42,19 +35,11 @@ export default function AdminLogin() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-        style={{
-          position: 'relative', zIndex: 10,
-          display: 'flex', flexDirection: 'column',
-          justifyContent: 'space-between',
-          padding: '52px 52px 48px',
-          borderRight: '1px solid var(--line-faint)',
-          background: 'rgba(9,9,15,0.70)',
-          backdropFilter: 'blur(2px)',
-        }}
+        className="relative z-10 flex flex-col justify-between px-5 py-6 sm:px-8 sm:py-8 lg:px-[52px] lg:py-[48px] border-b lg:border-b-0 lg:border-r border-[var(--line-faint)] bg-[#09090fb3] backdrop-blur-[2px]"
       >
         {/* Top — wordmark */}
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 64 }}>
+          <div className="flex items-center gap-3 mb-6 sm:mb-8 lg:mb-16">
             <div style={{
               width: 34, height: 34, borderRadius: '50%',
               border: '1px solid var(--p-line)',
@@ -84,7 +69,7 @@ export default function AdminLogin() {
             <h1 style={{
               margin: 0,
               fontFamily: "var(--font-outfit), 'Outfit', sans-serif",
-              fontSize: '2.65rem', fontWeight: 200,
+              fontSize: 'clamp(2rem, 7vw, 2.65rem)', fontWeight: 200,
               color: 'var(--t0)', letterSpacing: '-0.02em',
               lineHeight: 1.16,
             }}>
@@ -101,7 +86,7 @@ export default function AdminLogin() {
         </div>
 
         {/* Bottom — status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="flex items-center gap-2 mt-8 lg:mt-0">
           <div style={{
             width: 6, height: 6, borderRadius: '50%',
             background: 'var(--ok-text)', opacity: 0.7,
@@ -117,15 +102,22 @@ export default function AdminLogin() {
         initial={{ opacity: 0, x: 18 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.72, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
-        style={{
-          position: 'relative', zIndex: 10,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '48px 64px',
-        }}
+        className="relative z-10 flex items-center justify-center px-4 pb-8 pt-6 sm:px-6 sm:pb-10 sm:pt-8 lg:px-[64px] lg:py-[48px] flex-1"
       >
-        <div style={{ width: '100%', maxWidth: 380 }}>
+        <div
+          style={{
+            width: '100%',
+            maxWidth: 420,
+            padding: '24px 20px',
+            borderRadius: 20,
+            border: '1px solid var(--line)',
+            background: 'rgba(12,12,19,0.72)',
+            backdropFilter: 'blur(16px)',
+            boxShadow: '0 24px 80px rgba(0,0,0,0.28)',
+          }}
+        >
           {/* Form heading */}
-          <div style={{ marginBottom: 40 }}>
+          <div style={{ marginBottom: 28 }}>
             <h2 style={{
               margin: 0,
               fontFamily: "var(--font-outfit), 'Outfit', sans-serif",
@@ -134,8 +126,8 @@ export default function AdminLogin() {
             }}>
               Giriş Yap
             </h2>
-            <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: 'var(--t2)', letterSpacing: '0.02em' }}>
-              Erişim için şifreni gir
+            <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: 'var(--t2)', letterSpacing: '0.02em', lineHeight: 1.6 }}>
+              Erisim icin sifreni gir. Oturum ayni cihazda 1 hafta boyunca acik kalir.
             </p>
           </div>
 
