@@ -45,8 +45,22 @@ interface Message {
 
 interface DeviceEvent {
   id: string
+  event_type: string
   stage: string
+  node_id: string | null
+  node_slug: string | null
+  node_title: string | null
+  button_id: string | null
+  button_slug: string | null
   button_label: string
+  button_type: string | null
+  target_node_id: string | null
+  target_node_slug: string | null
+  target_node_title: string | null
+  transition_used: boolean
+  transition_text: string
+  transition_duration_seconds: number
+  metadata: Record<string, unknown> | null
   ip: string
   created_at: string
 }
@@ -214,8 +228,8 @@ function normalizeButtonForSave(button: ExperienceButton): ExperienceButton {
       buttonType === 'external_url' && button.external_url?.trim() ? button.external_url.trim() : null,
     show_transition: showTransition,
     transition_text: showTransition ? button.transition_text ?? '' : '',
-    transition_duration_ms: showTransition
-      ? Math.max(0, Math.round(Number(button.transition_duration_ms) || 0))
+    transition_duration_seconds: showTransition
+      ? Math.max(0, Math.round(Number(button.transition_duration_seconds) || 0))
       : 0,
     ban_duration_seconds: Math.max(1, Math.round(Number(button.ban_duration_seconds) || 21600)),
     confirm_text_override: button.confirm_text_override?.trim() || null,
@@ -233,6 +247,7 @@ function normalizePayloadForSave(payload: ExperiencePayload): ExperiencePayload 
       is_active: Boolean(node.is_active),
       content_type: node.content_type === 'cheatbox' ? 'cheatbox' : 'text_buttons',
       text_mode: node.text_mode === 'typewriter' ? 'typewriter' : 'static',
+      typewriter_duration_seconds: Math.max(1, Math.round(Number(node.typewriter_duration_seconds) || 12)),
     }))
   )
 
@@ -251,12 +266,6 @@ function normalizePayloadForSave(payload: ExperiencePayload): ExperiencePayload 
       entry_btn_label: payload.settings.entry_btn_label.trim() || 'Merak mı ediyorsun? İçeriye gir',
       bg_music_url: payload.settings.bg_music_url.trim(),
       footer_text: payload.settings.footer_text ?? '',
-      ban_confirm_text: payload.settings.ban_confirm_text ?? '',
-      ban_pre_text: payload.settings.ban_pre_text ?? '',
-      typewriter_char_delay_ms: Math.max(
-        10,
-        Math.round(Number(payload.settings.typewriter_char_delay_ms) || 43)
-      ),
       mobile_autoscroll_enabled: Boolean(payload.settings.mobile_autoscroll_enabled),
       root_node_id: nodeIds.has(payload.settings.root_node_id)
         ? payload.settings.root_node_id
@@ -280,6 +289,7 @@ function validatePayload(payload: ExperiencePayload) {
   for (const node of payload.nodes) {
     if (!node.title.trim()) return 'Tüm ekranların panel adı dolu olmalı.'
     if (!node.slug.trim()) return 'Ekran teknik kimliği boş olamaz.'
+    if (node.typewriter_duration_seconds < 1) return `"${node.title}" ekranında daktilo süresi en az 1 saniye olmalı.`
 
     if (nodeSlugs.has(node.slug)) {
       return 'Aynı teknik ekran kimliği birden fazla kullanılmış. Lütfen yeni ekranı tekrar oluştur.'
@@ -504,6 +514,48 @@ function ScreenBadge({ node }: { node: ExperienceNode }) {
   return <Badge>metin</Badge>
 }
 
+function getEventTone(eventType: string): 'muted' | 'primary' | 'danger' {
+  if (eventType === 'ban_action') return 'danger'
+  if (eventType === 'site_visit' || eventType === 'repeat_visit' || eventType === 'screen_view') return 'primary'
+  return 'muted'
+}
+
+function getEventLabel(eventType: string) {
+  switch (eventType) {
+    case 'site_visit':
+      return 'ilk ziyaret'
+    case 'repeat_visit':
+      return 'tekrar ziyaret'
+    case 'screen_view':
+      return 'ekran goruntulendi'
+    case 'button_click':
+      return 'butona basildi'
+    case 'external_link':
+      return 'dis baglanti'
+    case 'ban_action':
+      return 'ban islemi'
+    case 'back_click':
+      return 'geri'
+    case 'chat_message':
+      return 'mesaj gonderildi'
+    default:
+      return eventType || 'eylem'
+  }
+}
+
+function eventDetailLine(event: DeviceEvent) {
+  const parts = [
+    event.node_title || event.node_slug || event.stage,
+    event.button_label || null,
+    event.target_node_title ? `hedef: ${event.target_node_title}` : null,
+    event.transition_used && event.transition_duration_seconds > 0
+      ? `gecis: ${event.transition_duration_seconds} sn`
+      : null,
+  ].filter(Boolean)
+
+  return parts.join(' · ')
+}
+
 export default function AdminDashboard() {
   const router = useRouter()
 
@@ -524,6 +576,14 @@ export default function AdminDashboard() {
   const [filterBlocked, setFilterBlocked] = useState<'all' | 'active' | 'blocked'>('all')
   const [replyInput, setReplyInput] = useState('')
   const [replying, setReplying] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/admin/auth', { cache: 'no-store' })
+      .then((response) => {
+        if (response.status === 401) router.push('/admin')
+      })
+      .catch(() => {})
+  }, [router])
 
   const selectedNode = useMemo(
     () => experience?.nodes.find((node) => node.id === selectedNodeId) ?? null,
@@ -735,6 +795,7 @@ export default function AdminDashboard() {
       content_type: contentType,
       text_content: '',
       text_mode: textMode,
+      typewriter_duration_seconds: 12,
       is_active: true,
       sort_order: experience.nodes.length,
     }
@@ -778,6 +839,7 @@ export default function AdminDashboard() {
       content_type: 'text_buttons',
       text_content: '',
       text_mode: 'static',
+      typewriter_duration_seconds: 12,
       is_active: true,
       sort_order: experience.nodes.length,
     }
@@ -871,7 +933,7 @@ export default function AdminDashboard() {
       external_url: null,
       show_transition: false,
       transition_text: '',
-      transition_duration_ms: 0,
+      transition_duration_seconds: 0,
       ban_duration_seconds: 21600,
       confirm_text_override: null,
       is_active: true,
@@ -1121,13 +1183,6 @@ export default function AdminDashboard() {
               onChange={(value) => updateSettings({ bg_music_url: value })}
               placeholder="https://www.youtube.com/watch?v=..."
             />
-            <NumberField
-              label="Daktilo Hızı (ms)"
-              value={experience.settings.typewriter_char_delay_ms}
-              onChange={(value) => updateSettings({ typewriter_char_delay_ms: value })}
-              placeholder="43"
-              min={10}
-            />
             <SelectField
               label="Ana Daktilo Ekranı"
               value={experience.settings.root_node_id}
@@ -1150,6 +1205,10 @@ export default function AdminDashboard() {
               placeholder="Alt bilgi yazısı"
             />
           </div>
+
+          <Notice>
+            Daktilo hizi artik global milisaniye yerine ekran bazli saniye ile yonetilir. Her ekranin toplam daktilo suresini ekran duzenleyicisinden ayarlayabilirsin.
+          </Notice>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 18, alignItems: 'start' }}>
@@ -1269,15 +1328,22 @@ export default function AdminDashboard() {
                       { label: 'Cheatbox', value: 'cheatbox' },
                     ]}
                   />
-                  {selectedNode.content_type === 'text_buttons' && (
-                    <SelectField
-                      label="Yazı Nasıl Gelsin?"
-                      value={selectedNode.text_mode}
-                      onChange={(value) => updateNode(selectedNode.id, { text_mode: value as ExperienceTextMode })}
-                      options={[
-                        { label: 'Daktilo efektiyle yazılsın', value: 'typewriter' },
-                        { label: 'Direkt görünsün', value: 'static' },
-                      ]}
+                  <SelectField
+                    label={selectedNode.content_type === 'cheatbox' ? 'Üst Yazı Nasıl Gelsin?' : 'Yazı Nasıl Gelsin?'}
+                    value={selectedNode.text_mode}
+                    onChange={(value) => updateNode(selectedNode.id, { text_mode: value as ExperienceTextMode })}
+                    options={[
+                      { label: 'Daktilo efektiyle yazılsın', value: 'typewriter' },
+                      { label: 'Direkt görünsün', value: 'static' },
+                    ]}
+                  />
+                  {selectedNode.text_mode === 'typewriter' && (
+                    <NumberField
+                      label="Daktilo Süresi (sn)"
+                      value={selectedNode.typewriter_duration_seconds}
+                      onChange={(value) => updateNode(selectedNode.id, { typewriter_duration_seconds: value })}
+                      min={1}
+                      desc="Bu ekranın tüm yazısı yaklaşık bu sürede tamamlansın."
                     />
                   )}
                 </div>
@@ -1289,19 +1355,21 @@ export default function AdminDashboard() {
                   desc="Pasif ekranlar ziyaretçiye gösterilmez."
                 />
 
-                {selectedNode.content_type === 'text_buttons' && (
-                  <Field
-                    label="Ekran Yazısı"
-                    value={selectedNode.text_content}
-                    onChange={(value) => updateNode(selectedNode.id, { text_content: value })}
-                    isArea
-                    desc="Bu ekranda gösterilecek metin. Ana ekran daktiloysa buradaki yazı daktilo efektiyle akar."
-                  />
-                )}
+                <Field
+                  label={selectedNode.content_type === 'cheatbox' ? 'Cheatbox Ust Metni' : 'Ekran Yazisi'}
+                  value={selectedNode.text_content}
+                  onChange={(value) => updateNode(selectedNode.id, { text_content: value })}
+                  isArea
+                  desc={
+                    selectedNode.content_type === 'cheatbox'
+                      ? 'Bos birakirsan sadece cheatbox gorunur. Doluysa metin cheatboxin ustunde gosterilir.'
+                      : 'Bu ekranda gosterilecek metin.'
+                  }
+                />
 
                 {selectedNode.content_type === 'cheatbox' && (
                   <Notice>
-                    Bu ekran açıldığında mevcut cheatbox deneyimi gösterilir. İstersen aşağıya yine buton ekleyerek cheatbox sonrası yeni dallar oluşturabilirsin.
+                    Bu ekran acildiginda once ust metin, onun altinda mevcut cheatbox deneyimi gorunur. Istersen alttaki butonlarla cheatbox sonrasinda yeni dallar da olusturabilirsin.
                   </Notice>
                 )}
 
@@ -1408,7 +1476,7 @@ export default function AdminDashboard() {
                             label="Özel Ban Onay Metni"
                             value={button.confirm_text_override ?? ''}
                             onChange={(value) => updateButton(button.id, { confirm_text_override: value || null })}
-                            desc="Boş bırakılırsa global onay metni kullanılır."
+                            desc="Bos birakirsan varsayilan onay metni kullanilir."
                           />
                         </div>
                       )}
@@ -1435,9 +1503,9 @@ export default function AdminDashboard() {
                             isArea
                           />
                           <NumberField
-                            label="Süre (ms)"
-                            value={button.transition_duration_ms}
-                            onChange={(value) => updateButton(button.id, { transition_duration_ms: value })}
+                            label="Sure (sn)"
+                            value={button.transition_duration_seconds}
+                            onChange={(value) => updateButton(button.id, { transition_duration_seconds: value })}
                             min={0}
                           />
                         </div>
@@ -1447,31 +1515,6 @@ export default function AdminDashboard() {
                 </div>
               </>
             )}
-          </div>
-        </div>
-
-        <div className="card" style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div>
-            <p className="caps" style={{ display: 'block', marginBottom: 6 }}>
-              Ban Varsayılanları
-            </p>
-            <p style={{ margin: 0, color: 'var(--t2)', fontSize: '0.72rem', lineHeight: 1.6 }}>
-              Ban butonlarında özel metin girmezsen bu varsayılan metinler kullanılır.
-            </p>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
-            <Field
-              label="Ban Onay Metni"
-              value={experience.settings.ban_confirm_text}
-              onChange={(value) => updateSettings({ ban_confirm_text: value })}
-              isArea
-            />
-            <Field
-              label="Ban Öncesi Siyah Ekran Yazısı"
-              value={experience.settings.ban_pre_text}
-              onChange={(value) => updateSettings({ ban_pre_text: value })}
-              isArea
-            />
           </div>
         </div>
       </motion.div>
@@ -1699,11 +1742,19 @@ export default function AdminDashboard() {
                         background: 'rgba(255,255,255,0.018)',
                       }}
                     >
-                      <p style={{ margin: 0, fontSize: '0.78rem' }}>
-                        {event.stage} · {event.button_label || '-'}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <Badge tone={getEventTone(event.event_type)}>{getEventLabel(event.event_type)}</Badge>
+                        <span style={{ color: 'var(--t3)', fontSize: '0.62rem' }}>{fmt(event.created_at)}</span>
+                      </div>
+                      <p style={{ margin: '8px 0 0', fontSize: '0.78rem', lineHeight: 1.55 }}>
+                        {eventDetailLine(event) || '-'}
                       </p>
-                      <p style={{ margin: '5px 0 0', color: 'var(--t3)', fontSize: '0.62rem' }}>
-                        {event.ip} · {fmt(event.created_at)}
+                      <p style={{ margin: '5px 0 0', color: 'var(--t3)', fontSize: '0.62rem', lineHeight: 1.55 }}>
+                        {event.ip}
+                        {event.transition_used && event.transition_text ? ` · "${event.transition_text}"` : ''}
+                        {event.metadata && typeof event.metadata.preview === 'string'
+                          ? ` · ${event.metadata.preview}`
+                          : ''}
                       </p>
                     </div>
                   ))}
