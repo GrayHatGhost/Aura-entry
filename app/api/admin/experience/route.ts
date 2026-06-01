@@ -122,6 +122,10 @@ function validateGraph(
     if (node.text_mode !== 'typewriter' && node.text_mode !== 'static') {
       return `"${node.title || node.slug}" kapısında geçersiz metin modu var.`
     }
+
+    if (node.typewriter_duration_seconds < 1) {
+      return `"${node.title || node.slug}" kapısının daktilo süresi en az 1 saniye olmalıdır.`
+    }
   }
 
   for (const button of buttons) {
@@ -152,7 +156,7 @@ function validateGraph(
       }
     }
 
-    if (button.transition_duration_ms < 0) {
+    if (button.transition_duration_seconds < 0) {
       return `"${button.label}" butonunun geçiş süresi negatif olamaz.`
     }
 
@@ -172,6 +176,7 @@ function prepareNodeRows(nodes: ExperienceNode[], now: string) {
     content_type: node.content_type,
     text_content: normalizeText(node.text_content),
     text_mode: node.text_mode,
+      typewriter_duration_seconds: node.typewriter_duration_seconds,
     is_active: Boolean(node.is_active),
     sort_order: node.sort_order,
     updated_at: now,
@@ -194,7 +199,7 @@ function prepareButtonRows(buttons: ExperienceButton[], now: string) {
       external_url: isExternalUrl ? button.external_url?.trim() ?? null : null,
       show_transition: showTransition,
       transition_text: showTransition ? normalizeText(button.transition_text) : '',
-      transition_duration_ms: showTransition ? button.transition_duration_ms : 0,
+      transition_duration_seconds: showTransition ? button.transition_duration_seconds : 0,
       ban_duration_seconds: button.ban_duration_seconds,
       confirm_text_override: button.confirm_text_override?.trim() || null,
       is_active: Boolean(button.is_active),
@@ -219,7 +224,7 @@ async function readExperiencePayload(
 
   const { data: nodes, error: nodesError } = await supabase
     .from('experience_nodes')
-    .select('id, slug, title, content_type, text_content, text_mode, is_active, sort_order')
+    .select('id, slug, title, content_type, text_content, text_mode, typewriter_duration_seconds, is_active, sort_order')
     .order('sort_order', { ascending: true })
 
   if (nodesError) {
@@ -233,7 +238,7 @@ async function readExperiencePayload(
   const { data: buttons, error: buttonsError } = await supabase
     .from('experience_buttons')
     .select(
-      'id, node_id, slug, label, button_type, target_node_id, external_url, show_transition, transition_text, transition_duration_ms, ban_duration_seconds, confirm_text_override, is_active, sort_order'
+      'id, node_id, slug, label, button_type, target_node_id, external_url, show_transition, transition_text, transition_duration_seconds, ban_duration_seconds, confirm_text_override, is_active, sort_order'
     )
     .order('sort_order', { ascending: true })
 
@@ -339,9 +344,6 @@ async function saveExperienceGraph(
     entry_btn_label: settings.entry_btn_label,
     bg_music_url: settings.bg_music_url,
     footer_text: settings.footer_text,
-    ban_confirm_text: settings.ban_confirm_text,
-    ban_pre_text: settings.ban_pre_text,
-    typewriter_char_delay_ms: settings.typewriter_char_delay_ms,
     mobile_autoscroll_enabled: settings.mobile_autoscroll_enabled,
     root_node_id: settings.root_node_id,
     updated_at: now,
