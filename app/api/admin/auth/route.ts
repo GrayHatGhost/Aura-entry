@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { signAdminToken } from '@/lib/auth'
+import { getAdminCookieOptions, signAdminToken, verifyAdminToken } from '@/lib/auth'
+import { cookies } from 'next/headers'
 
 export async function POST(req: NextRequest) {
   const { password } = await req.json()
@@ -11,14 +12,29 @@ export async function POST(req: NextRequest) {
   const token = await signAdminToken()
 
   const res = NextResponse.json({ status: 'ok' })
-  res.cookies.set('aura_admin', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 60 * 60 * 24 * 7, // 7 days
-    path: '/',
-  })
+  res.cookies.set('aura_admin', token, getAdminCookieOptions())
   return res
+}
+
+export async function GET() {
+  const cookieStore = await cookies()
+  const token = cookieStore.get('aura_admin')?.value
+
+  if (!token) {
+    return NextResponse.json({ authenticated: false }, { status: 401 })
+  }
+
+  const isValid = await verifyAdminToken(token)
+
+  if (!isValid) {
+    const response = NextResponse.json({ authenticated: false }, { status: 401 })
+    response.cookies.delete('aura_admin')
+    return response
+  }
+
+  const response = NextResponse.json({ authenticated: true })
+  response.cookies.set('aura_admin', token, getAdminCookieOptions())
+  return response
 }
 
 export async function DELETE() {
