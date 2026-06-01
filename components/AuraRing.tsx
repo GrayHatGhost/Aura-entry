@@ -14,12 +14,36 @@ export default function AuraRing({ isExpanded, onClick }: AuraRingProps) {
       onClick={onClick}
       animate={isExpanded ? { scale: 0.55, opacity: 0.65 } : { scale: 1, opacity: 1 }}
       transition={{ duration: 1.4, ease: [0.76, 0, 0.24, 1] }}
+      style={{ width: 176, height: 176 }}
     >
       <motion.div
+        className="absolute rounded-full pointer-events-none"
+        animate={{ scale: [0.9, 1.08, 0.94, 0.9], opacity: [0.2, 0.4, 0.22, 0.2] }}
+        transition={{ duration: 5.8, repeat: Infinity, ease: 'easeInOut' }}
+        style={{
+          inset: 10,
+          background:
+            'radial-gradient(circle, rgba(170,132,255,0.26) 0%, rgba(124,82,220,0.12) 32%, rgba(20,16,36,0) 72%)',
+          filter: 'blur(8px)',
+        }}
+      />
+
+      <motion.div
+        className="absolute rounded-full pointer-events-none"
+        animate={{ scale: [0.82, 1.02, 0.86, 0.82], opacity: [0.12, 0.26, 0.16, 0.12] }}
+        transition={{ duration: 7.4, repeat: Infinity, ease: 'easeInOut' }}
+        style={{
+          inset: -6,
+          border: '1px solid rgba(156,120,255,0.12)',
+          boxShadow: '0 0 48px rgba(124,82,220,0.18), inset 0 0 30px rgba(180,150,255,0.07)',
+        }}
+      />
+
+      <motion.div
         className="absolute z-0 pointer-events-none"
-        animate={{ opacity: [0.40, 0.60, 0.40] }}
+        animate={{ opacity: [0.44, 0.72, 0.46], scale: [0.98, 1.04, 0.98] }}
         transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-        style={{ width: 140, height: 140 }}
+        style={{ width: 152, height: 152 }}
       >
         <svg viewBox="0 0 200 220" fill="none" xmlns="http://www.w3.org/2000/svg">
           <defs>
@@ -105,17 +129,37 @@ export default function AuraRing({ isExpanded, onClick }: AuraRingProps) {
       <motion.div
         className="relative rounded-full z-10 pointer-events-none"
         animate={{ rotateZ: 360 }}
-        transition={{ duration: 12, repeat: Infinity, ease: 'linear' }}
+        transition={{ duration: 11, repeat: Infinity, ease: 'linear' }}
         style={{
-          width: 138,
-          height: 138,
+          width: 148,
+          height: 148,
           borderRadius: '50%',
-          border: '1.5px solid rgba(155,120,255,0.28)',
-          borderTopColor: 'rgba(195,170,255,0.60)',
-          borderBottomColor: 'rgba(100,70,200,0.10)',
+          border: '1.5px solid rgba(155,120,255,0.32)',
+          borderTopColor: 'rgba(214,192,255,0.82)',
+          borderRightColor: 'rgba(168,132,255,0.48)',
+          borderBottomColor: 'rgba(100,70,200,0.08)',
           transform: 'rotateX(62deg)',
           transformOrigin: 'center center',
-          background: 'transparent',
+          background:
+            'radial-gradient(circle at 50% 45%, rgba(170,132,255,0.08), rgba(0,0,0,0) 66%)',
+          boxShadow:
+            '0 0 24px rgba(124,82,220,0.2), inset 0 0 22px rgba(194,170,255,0.07)',
+        }}
+      />
+
+      <motion.div
+        className="absolute rounded-full z-10 pointer-events-none"
+        animate={{ rotateZ: -360 }}
+        transition={{ duration: 18, repeat: Infinity, ease: 'linear' }}
+        style={{
+          width: 118,
+          height: 118,
+          borderRadius: '50%',
+          border: '1px solid rgba(214,192,255,0.18)',
+          borderLeftColor: 'rgba(214,192,255,0.55)',
+          borderBottomColor: 'rgba(124,82,220,0.05)',
+          transform: 'rotateX(62deg)',
+          boxShadow: '0 0 18px rgba(124,82,220,0.08)',
         }}
       />
     </motion.div>

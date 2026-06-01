@@ -14,9 +14,20 @@ interface ChatBoxProps {
   deviceId: string
   initialMessages?: Message[]
   onFirstMessage?: () => void
+  stageContext?: {
+    stage: string
+    nodeId: string
+    nodeSlug: string
+    nodeTitle: string
+  }
 }
 
-export default function ChatBox({ deviceId, initialMessages = [], onFirstMessage }: ChatBoxProps) {
+export default function ChatBox({
+  deviceId,
+  initialMessages = [],
+  onFirstMessage,
+  stageContext,
+}: ChatBoxProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [input, setInput]       = useState('')
   const [sending, setSending]   = useState(false)
@@ -81,7 +92,14 @@ export default function ChatBox({ deviceId, initialMessages = [], onFirstMessage
     await fetch('/api/message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId, content: text }),
+      body: JSON.stringify({
+        deviceId,
+        content: text,
+        stage: stageContext?.stage ?? 'chat',
+        nodeId: stageContext?.nodeId ?? null,
+        nodeSlug: stageContext?.nodeSlug ?? 'chat',
+        nodeTitle: stageContext?.nodeTitle ?? 'Cheatbox',
+      }),
     })
     setSending(false)
   }

@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 interface TypewriterTextProps {
   text: string
   onComplete: () => void
-  charDelayMs?: number
+  totalDurationSeconds?: number
   mobileAutoscroll?: boolean
 }
 
@@ -18,34 +18,51 @@ function isMobile() {
 export default function TypewriterText({
   text,
   onComplete,
-  charDelayMs = 43,
+  totalDurationSeconds = 12,
   mobileAutoscroll = true,
 }: TypewriterTextProps) {
   const [displayed, setDisplayed] = useState('')
   const [done, setDone] = useState(false)
   const idxRef = useRef(0)
-  const cbRef  = useRef(onComplete)
+  const cbRef = useRef(onComplete)
   const containerRef = useRef<HTMLDivElement>(null)
   const targetScrollYRef = useRef(0)
   const rafRef = useRef<number | null>(null)
-  useEffect(() => { cbRef.current = onComplete }, [onComplete])
+  const userInteractingRef = useRef(false)
+  const resumeTimeoutRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    cbRef.current = onComplete
+  }, [onComplete])
 
   useEffect(() => {
     if (!mobileAutoscroll || !isMobile() || !containerRef.current) return
 
+    const cancelAnimation = () => {
+      if (rafRef.current != null) {
+        window.cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
+    }
+
     const animateToTarget = () => {
+      if (userInteractingRef.current) {
+        rafRef.current = null
+        return
+      }
+
       const currentY = window.scrollY
       const targetY = targetScrollYRef.current
       const delta = targetY - currentY
 
-      if (Math.abs(delta) < 1) {
+      if (Math.abs(delta) < 0.6) {
         window.scrollTo({ top: targetY, behavior: 'auto' })
         rafRef.current = null
         return
       }
 
       window.scrollTo({
-        top: currentY + delta * 0.16,
+        top: currentY + delta * 0.08 + Math.sign(delta) * 0.35,
         behavior: 'auto',
       })
       rafRef.current = window.requestAnimationFrame(animateToTarget)
@@ -60,9 +77,32 @@ export default function TypewriterText({
       if (overflow <= 0) return
 
       targetScrollYRef.current = Math.max(window.scrollY, window.scrollY + overflow + 12)
-      if (rafRef.current == null) {
+      if (!userInteractingRef.current && rafRef.current == null) {
         rafRef.current = window.requestAnimationFrame(animateToTarget)
       }
+    }
+
+    const resumeAutoScroll = () => {
+      if (resumeTimeoutRef.current != null) {
+        window.clearTimeout(resumeTimeoutRef.current)
+      }
+
+      resumeTimeoutRef.current = window.setTimeout(() => {
+        userInteractingRef.current = false
+        syncScroll()
+      }, 240)
+    }
+
+    const handleUserInteractStart = () => {
+      userInteractingRef.current = true
+      cancelAnimation()
+      if (resumeTimeoutRef.current != null) {
+        window.clearTimeout(resumeTimeoutRef.current)
+      }
+    }
+
+    const handleUserInteractEnd = () => {
+      resumeAutoScroll()
     }
 
     const observer = new ResizeObserver(() => {
@@ -70,14 +110,32 @@ export default function TypewriterText({
     })
 
     observer.observe(containerRef.current)
+    window.addEventListener('touchstart', handleUserInteractStart, { passive: true })
+    window.addEventListener('touchmove', handleUserInteractStart, { passive: true })
+    window.addEventListener('touchend', handleUserInteractEnd, { passive: true })
+    window.addEventListener('pointerdown', handleUserInteractStart, { passive: true })
+    window.addEventListener('pointerup', handleUserInteractEnd, { passive: true })
+    window.addEventListener(
+      'wheel',
+      () => {
+        handleUserInteractStart()
+        handleUserInteractEnd()
+      },
+      { passive: true }
+    )
     syncScroll()
 
     return () => {
       observer.disconnect()
-      if (rafRef.current != null) {
-        window.cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
+      cancelAnimation()
+      if (resumeTimeoutRef.current != null) {
+        window.clearTimeout(resumeTimeoutRef.current)
       }
+      window.removeEventListener('touchstart', handleUserInteractStart)
+      window.removeEventListener('touchmove', handleUserInteractStart)
+      window.removeEventListener('touchend', handleUserInteractEnd)
+      window.removeEventListener('pointerdown', handleUserInteractStart)
+      window.removeEventListener('pointerup', handleUserInteractEnd)
     }
   }, [mobileAutoscroll, text])
 
@@ -85,18 +143,36 @@ export default function TypewriterText({
     idxRef.current = 0
     setDisplayed('')
     setDone(false)
-    const iv = setInterval(() => {
+
+    if (!text.length) {
+      setDone(true)
+      const doneTimeout = window.setTimeout(() => cbRef.current(), 120)
+      return () => window.clearTimeout(doneTimeout)
+    }
+
+    const charDelayMs = Math.max(
+      14,
+      Math.round((Math.max(1, totalDurationSeconds) * 1000) / Math.max(1, text.length))
+    )
+
+    let timeoutId = 0
+
+    const tick = () => {
       if (idxRef.current >= text.length) {
-        clearInterval(iv)
         setDone(true)
-        setTimeout(() => cbRef.current(), 700)
+        timeoutId = window.setTimeout(() => cbRef.current(), 700)
         return
       }
-      setDisplayed(text.slice(0, idxRef.current + 1))
-      idxRef.current++
-    }, charDelayMs)
-    return () => clearInterval(iv)
-  }, [text, charDelayMs])
+
+      idxRef.current += 1
+      setDisplayed(text.slice(0, idxRef.current))
+      timeoutId = window.setTimeout(tick, charDelayMs)
+    }
+
+    timeoutId = window.setTimeout(tick, charDelayMs)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [text, totalDurationSeconds])
 
   return (
     <motion.div
@@ -110,7 +186,7 @@ export default function TypewriterText({
         <p
           key={i}
           style={{
-            color: 'var(--text-primary)',
+            color: 'var(--t0)',
             fontSize: '0.93rem',
             letterSpacing: '0.022em',
             fontWeight: 300,
@@ -131,7 +207,7 @@ export default function TypewriterText({
             display: 'inline-block',
             width: 2,
             height: '0.95em',
-            background: 'var(--accent)',
+            background: 'var(--p)',
             opacity: 0.55,
             borderRadius: 1,
             verticalAlign: 'text-bottom',
